@@ -3,10 +3,10 @@ import pandas as pd
 import time 
 import duckdb
 
-conn = duckdb.connect(database='/Users/yehyun/Desktop/madang_csv/Customer_madang.db')
-conn.sql("CREATE TABLE IF NOT EXISTS Customer AS SELECT * FROM '/Users/yehyun/Desktop/madang_csv/Customer_madang.csv'")
-conn.sql("CREATE TABLE IF NOT EXISTS Book AS SELECT * FROM '/Users/yehyun/Desktop/madang_csv/Book_madang.csv'")
-conn.sql("CREATE TABLE IF NOT EXISTS Orders AS SELECT * FROM '/Users/yehyun/Desktop/madang_csv/Orders_madang.csv'")
+conn = duckdb.connect(database='madang.db')
+conn.sql("CREATE TABLE IF NOT EXISTS Customer AS SELECT * FROM 'Customer_madang.csv'")
+conn.sql("CREATE TABLE IF NOT EXISTS Book AS SELECT * FROM 'Book_madang.csv'")
+conn.sql("CREATE TABLE IF NOT EXISTS Orders AS SELECT * FROM 'Orders_madang.csv'")
 
 def query(sql, returnType='df'):
     if returnType == 'df':
