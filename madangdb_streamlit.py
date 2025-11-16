@@ -12,6 +12,7 @@ conn = duckdb.connect(DB_PATH)
 # ==========================
 # 🏗️ 초기 테이블 생성 (CSV → DuckDB)
 # ==========================
+
 conn.sql("""
 CREATE TABLE IF NOT EXISTS Customer AS
 SELECT * FROM read_csv_auto('Customer_madang.csv')
@@ -25,12 +26,6 @@ SELECT * FROM read_csv_auto('Book_madang.csv')
 conn.sql("""
 CREATE TABLE IF NOT EXISTS Orders AS
 SELECT * FROM read_csv_auto('Orders_madang.csv')
-""")
-
-# 🔥 문제였던 부분 — 수정 완료 (정상 작동)
-conn.sql("""
-CREATE TABLE IF NOT EXISTS Imported_Book AS
-SELECT * FROM read_csv_auto('Imported_Book_madang.csv')
 """)
 
 # ==========================
@@ -57,7 +52,7 @@ menu = st.sidebar.radio("메뉴 선택", [
 # 🔍 고객 조회
 # ==========================
 if menu == "고객 조회":
-    name = st.text_input("🔍 고객 이름으로 검색", "")
+    name = st.text_input("고객 이름으로 검색", "")
     if len(name) > 0:
         sql = f"""
         SELECT c.custid, c.name, c.address, c.phone,
@@ -78,17 +73,14 @@ if menu == "고객 조회":
 # 📚 도서 조회
 # ==========================
 elif menu == "도서 조회":
-    st.subheader("📘 서적 목록 (Book)")
+    st.subheader("도서 목록")
     st.dataframe(query("SELECT * FROM Book"))
-
-    st.subheader("📗 수입 도서 (Imported_Book)")
-    st.dataframe(query("SELECT * FROM Imported_Book"))
 
 # ==========================
 # 🧾 거래 입력
 # ==========================
 elif menu == "거래 입력":
-    st.subheader("🧾 거래 등록")
+    st.subheader("거래 등록")
 
     customers = query("SELECT custid, name FROM Customer")
     cust_map = {
@@ -141,7 +133,7 @@ elif menu == "고객 등록":
 # 📊 거래 요약
 # ==========================
 elif menu == "거래 요약":
-    st.subheader("📊 거래 통계 요약")
+    st.subheader("거래 통계")
     df = query("""
         SELECT c.name AS 고객명,
                COUNT(o.orderid) AS 거래수,
