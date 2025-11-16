@@ -1,61 +1,154 @@
-import streamlit as st        
-import pandas as pd          
-import time 
+import streamlit as st
 import duckdb
+import pandas as pd
+import time
 
-conn = duckdb.connect(database='madang.db')
-conn.sql("CREATE TABLE IF NOT EXISTS Customer AS SELECT * FROM 'Customer_madang.csv'")
-conn.sql("CREATE TABLE IF NOT EXISTS Book AS SELECT * FROM 'Book_madang.csv'")
-conn.sql("CREATE TABLE IF NOT EXISTS Orders AS SELECT * FROM 'Orders_madang.csv'")
+# ==========================
+# 🔐 DuckDB 연결
+# ==========================
+DB_PATH = "madang.duckdb"   # 프로젝트 폴더 내 DB 파일
+conn = duckdb.connect(DB_PATH)
 
-def query(sql, returnType='df'):
-    if returnType == 'df':
-        return conn.execute(sql).df()  # 실행, 판다스 변환
-    else:
-        return conn.execute(sql).fetchall()  # 리스트 변환
+# ==========================
+# 🏗️ 초기 테이블 생성 (CSV → DuckDB)
+# ==========================
+conn.sql("""
+CREATE TABLE IF NOT EXISTS Customer AS
+SELECT * FROM read_csv_auto('Customer_madang.csv')
+""")
 
-books = [None] 
-result = query("SELECT CONCAT(bookid, ',', bookname) AS info FROM Book") 
-for res in result['info']:
-    books.append(res)
+conn.sql("""
+CREATE TABLE IF NOT EXISTS Book AS
+SELECT * FROM read_csv_auto('Book_madang.csv')
+""")
 
-tab1, tab2 = st.tabs(["고객조회", "거래 입력"])
-# tab1: 고객 거래내역 조회
-# tab2: 거래(구매) 입력
+conn.sql("""
+CREATE TABLE IF NOT EXISTS Orders AS
+SELECT * FROM read_csv_auto('Orders_madang.csv')
+""")
 
-name = ""                
-custid = 999           
-result = pd.DataFrame() 
-name = tab1.text_input("고객명")
-select_book = "" 
+# 🔥 문제였던 부분 — 수정 완료 (정상 작동)
+conn.sql("""
+CREATE TABLE IF NOT EXISTS Imported_Book AS
+SELECT * FROM read_csv_auto('Imported_Book_madang.csv')
+""")
 
-if len(name) > 0:
-    sql = f"""
-        SELECT c.custid, c.name, b.bookname, o.orderdate, o.saleprice FROM Customer c, Book b, Orders o
-        WHERE c.custid = o.custid AND o.bookid = b.bookid AND c.name = '{name}'; """
-    result = query(sql)
-    tab1.write(result)
+# ==========================
+# 🔎 SQL 실행 함수
+# ==========================
+def query(sql):
+    return conn.sql(sql).df()
 
-    if not result.empty:
-        custid = result['custid'][0]
-        tab2.write("고객번호: " + str(custid))
-        tab2.write("고객명: " + name)
-        select_book = tab2.selectbox("구매 서적:", books)
+# ==========================
+# 🔧 Streamlit UI
+# ==========================
+st.set_page_config(page_title="서점 관리시스템", layout="wide")
+st.title("서점 관리 시스템")
 
-        if select_book is not None:
-            bookid = select_book.split(",")[0]
-            dt = time.strftime('%Y-%m-%d', time.localtime())
-            orderid = query("SELECT COALESCE(MAX(orderid), 0) + 1 AS nextid FROM Orders", "df")['nextid'][0]
-            price = tab2.text_input("금액")
+menu = st.sidebar.radio("메뉴 선택", [
+    "고객 조회",
+    "도서 조회",
+    "거래 입력",
+    "고객 등록",
+    "거래 요약"
+])
 
-            if tab2.button("거래 입력"):
-                sql = f"""
-                    INSERT INTO Orders (orderid, custid, bookid, saleprice, orderdate)
-                    VALUES ({orderid}, {custid}, {bookid}, {price}, '{dt}');
-                """
-                conn.execute(sql)
-                tab2.success("거래가 입력되었습니다.")
-    else:
-        tab1.warning("해당 고객의 거래내역이 없습니다.")
+# ==========================
+# 🔍 고객 조회
+# ==========================
+if menu == "고객 조회":
+    name = st.text_input("🔍 고객 이름으로 검색", "")
+    if len(name) > 0:
+        sql = f"""
+        SELECT c.custid, c.name, c.address, c.phone,
+               b.bookname, o.orderdate, o.saleprice
+        FROM Customer c
+        JOIN Orders o ON c.custid = o.custid
+        JOIN Book b ON o.bookid = b.bookid
+        WHERE c.name ILIKE '%{name}%'
+        """
+        result = query(sql)
+        if not result.empty:
+            st.success(f"총 {len(result)}건의 거래 내역이 검색되었습니다.")
+            st.dataframe(result)
+        else:
+            st.warning("해당 고객의 거래 내역이 없습니다.")
 
-conn.close()
+# ==========================
+# 📚 도서 조회
+# ==========================
+elif menu == "도서 조회":
+    st.subheader("📘 서적 목록 (Book)")
+    st.dataframe(query("SELECT * FROM Book"))
+
+    st.subheader("📗 수입 도서 (Imported_Book)")
+    st.dataframe(query("SELECT * FROM Imported_Book"))
+
+# ==========================
+# 🧾 거래 입력
+# ==========================
+elif menu == "거래 입력":
+    st.subheader("🧾 거래 등록")
+
+    customers = query("SELECT custid, name FROM Customer")
+    cust_map = {
+        f"{row['name']} ({row['custid']})": row['custid']
+        for _, row in customers.iterrows()
+    }
+    cust_select = st.selectbox("고객 선택", list(cust_map.keys()))
+
+    books = query("SELECT bookid, bookname FROM Book")
+    book_map = {
+        f"{row['bookname']} ({row['bookid']})": row['bookid']
+        for _, row in books.iterrows()
+    }
+    book_select = st.selectbox("구매할 도서 선택", list(book_map.keys()))
+
+    saleprice = st.number_input("판매 금액 입력", min_value=0, step=1000)
+
+    if st.button("거래 입력"):
+        custid = cust_map[cust_select]
+        bookid = book_map[book_select]
+        nextid = query("SELECT IFNULL(MAX(orderid),0)+1 AS nextid FROM Orders")["nextid"][0]
+        today = time.strftime('%Y-%m-%d')
+
+        conn.sql(f"""
+        INSERT INTO Orders (orderid, custid, bookid, saleprice, orderdate)
+        VALUES ({nextid}, {custid}, {bookid}, {saleprice}, '{today}')
+        """)
+
+        st.success(f"거래가 등록되었습니다! (거래번호: {nextid})")
+
+# ==========================
+# 🧍 고객 등록
+# ==========================
+elif menu == "고객 등록":
+    st.subheader("🧍 신규 고객 등록")
+    name = st.text_input("고객 이름")
+    address = st.text_input("주소")
+    phone = st.text_input("전화번호")
+
+    if st.button("등록"):
+        nextid = query("SELECT IFNULL(MAX(custid),0)+1 AS nextid FROM Customer")["nextid"][0]
+
+        conn.sql(f"""
+        INSERT INTO Customer VALUES({nextid}, '{name}', '{address}', '{phone}')
+        """)
+
+        st.success(f"신규 고객 '{name}' 등록 완료! (ID: {nextid})")
+
+# ==========================
+# 📊 거래 요약
+# ==========================
+elif menu == "거래 요약":
+    st.subheader("📊 거래 통계 요약")
+    df = query("""
+        SELECT c.name AS 고객명,
+               COUNT(o.orderid) AS 거래수,
+               SUM(o.saleprice) AS 총금액
+        FROM Orders o
+        JOIN Customer c ON o.custid = c.custid
+        GROUP BY c.name
+        ORDER BY 총금액 DESC
+    """)
+    st.dataframe(df)
